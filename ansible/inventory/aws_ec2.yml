@@ -1,0 +1,31 @@
+# Dynamic EC2 inventory for compliance scanning
+# Automatically discovers instances tagged ComplianceTarget=true
+
+plugin: amazon.aws.aws_ec2
+regions:
+  - us-east-1
+
+filters:
+  tag:ComplianceTarget: "true"
+  instance-state-name: running
+
+keyed_groups:
+  - key: tags.OS
+    prefix: os
+    separator: "_"
+  - key: tags.CISProfile
+    prefix: profile
+    separator: "_"
+
+compose:
+  ansible_host: public_ip_address
+
+hostvar_expressions:
+  instance_id: instance_id
+  os_type: "tags.OS"
+  cis_profile: "tags.CISProfile"
+
+groups:
+  amazon_linux: "'amazon-linux-2023' in tags.get('OS', '')"
+  ubuntu: "'ubuntu-2204' in tags.get('OS', '')"
+  compliance_targets: "'true' in tags.get('ComplianceTarget', '')"

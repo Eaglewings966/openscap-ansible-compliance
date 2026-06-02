@@ -1,0 +1,184 @@
+---
+# CIS Auto-Remediation Tasks — idempotent, safe to run multiple times
+
+- name: "[CIS 5.2] Harden SSH configuration"
+  lineinfile:
+    path: /etc/ssh/sshd_config
+    regexp: "^#?{{ item.key }}"
+    line: "{{ item.key }} {{ item.value }}"
+    state: present
+    backup: true
+  loop:
+    - { key: "PermitRootLogin",          value: "{{ ssh_permit_root_login }}" }
+    - { key: "PasswordAuthentication",   value: "{{ ssh_password_authentication }}" }
+    - { key: "MaxAuthTries",             value: "{{ ssh_max_auth_tries }}" }
+    - { key: "ClientAliveInterval",      value: "{{ ssh_client_alive_interval }}" }
+    - { key: "ClientAliveCountMax",      value: "{{ ssh_client_alive_count_max }}" }
+    - { key: "LoginGraceTime",           value: "{{ ssh_login_grace_time }}" }
+    - { key: "X11Forwarding",            value: "{{ ssh_x11_forwarding }}" }
+    - { key: "AllowTcpForwarding",       value: "{{ ssh_allow_tcp_forwarding }}" }
+    - { key: "LogLevel",                 value: "{{ ssh_log_level }}" }
+    - { key: "UsePAM",                   value: "{{ ssh_use_pam }}" }
+    - { key: "HostbasedAuthentication",  value: "{{ ssh_host_based_authentication }}" }
+    - { key: "IgnoreRhosts",             value: "{{ ssh_ignore_rhosts }}" }
+    - { key: "Protocol",                 value: "2" }
+    - { key: "Ciphers",
+        value: "aes256-gcm@openssh.com,aes128-gcm@openssh.com,aes256-ctr" }
+    - { key: "MACs",
+        value: "hmac-sha2-512-etm@openssh.com,hmac-sha2-256-etm@openssh.com" }
+    - { key: "KexAlgorithms",
+        value: "curve25519-sha256,ecdh-sha2-nistp521" }
+  notify: Restart SSH
+
+- name: "[CIS 5.4] Set password policy in login.defs"
+  lineinfile:
+    path: /etc/login.defs
+    regexp: "^{{ item.key }}"
+    line: "{{ item.key }}\t{{ item.value }}"
+    state: present
+  loop:
+    - { key: "PASS_MAX_DAYS", value: "{{ pass_max_days }}" }
+    - { key: "PASS_MIN_DAYS", value: "{{ pass_min_days }}" }
+    - { key: "PASS_WARN_AGE", value: "{{ pass_warn_age }}" }
+    - { key: "PASS_MIN_LEN",  value: "{{ pass_min_len }}" }
+
+- name: "[CIS 3.1] Apply kernel sysctl hardening"
+  sysctl:
+    name: "{{ item.key }}"
+    value: "{{ item.value }}"
+    state: present
+    reload: true
+    sysctl_file: /etc/sysctl.d/99-cis-hardening.conf
+  loop: "{{ kernel_sysctl_settings }}"
+
+- name: "[CIS 4.1] Disable unnecessary services"
+  service:
+    name: "{{ item }}"
+    state: stopped
+    enabled: false
+  loop: "{{ services_to_disable }}"
+  ignore_errors: true
+
+- name: "[CIS 1.1] Set filesystem mount hardening options"
+  mount:
+    path: "{{ item.mount }}"
+    src: "tmpfs"
+    fstype: "tmpfs"
+    opts: "{{ item.options }}"
+    state: mounted
+  loop: "{{ filesystem_hardening }}"
+  ignore_errors: true
+
+- name: "[CIS 1.3] Set sticky bit on world-writable directories"
+  shell: >
+    df --local -P | awk '{if (NR!=1) print $6}' |
+    xargs -I '{}' find '{}' -xdev -type d -perm -0002 2>/dev/null |
+    xargs chmod a+t
+  changed_when: false
+
+- name: "[CIS 4.2] Install auditd"
+  package:
+    name: "{{ 'audit' if ansible_distribution == 'Amazon' else 'auditd' }}"
+    state: present
+
+- name: "[CIS 4.2] Configure auditd rules"
+  copy:
+    content: |
+      # CIS audit rules
+      -w /etc/passwd -p wa -k identity
+      -w /etc/group -p wa -k identity
+      -w /etc/shadow -p wa -k identity
+      -w /etc/sudoers -p wa -k scope
+      -w /var/log/sudo.log -p wa -k actions
+      -w /etc/ssh/sshd_config -p wa -k sshd
+      -a always,exit -F arch=b64 -S execve -k exec
+      -a always,exit -F arch=b64 -S chmod -S fchmod -k perm_mod
+      -a always,exit -F arch=b64 -S open -F exit=-EACCES -k access
+      -a always,exit -F arch=b64 -S open -F exit=-EPERM -k access
+    dest: /etc/audit/rules.d/99-cis.rules
+    mode: "0640"
+    backup: true
+  notify: Restart auditd
+
+- name: "[CIS 6.1] Set permissions on /etc/passwd"
+  file:
+    path: /etc/passwd
+    owner: root
+    group: root
+    mode: "0644"
+
+- name: "[CIS 6.1] Set permissions on /etc/shadow"
+  file:
+    path: /etc/shadow
+    owner: root
+    group: "{{ 'shadow' if ansible_distribution == 'Ubuntu' else 'root' }}"
+    mode: "0000"
+
+- name: "[CIS 6.1] Set permissions on /etc/group"
+  file:
+    path: /etc/group
+    owner: root
+    group: root
+    mode: "0644"
+
+- name: "[CIS 2.2] Ensure cron daemon is enabled"
+  service:
+    name: "{{ 'crond' if ansible_distribution == 'Amazon' else 'cron' }}"
+    state: started
+    enabled: true
+
+- name: "[CIS 2.2] Set cron and at access control files"
+  file:
+    path: "{{ item }}"
+    owner: root
+    group: root
+    mode: "0600"
+    state: touch
+  loop:
+    - /etc/cron.allow
+    - /etc/at.allow
+
+- name: "[CIS 3.5] Disable IPv6 if not required"
+  lineinfile:
+    path: /etc/sysctl.d/99-cis-hardening.conf
+    line: "{{ item }}"
+    state: present
+  loop:
+    - "net.ipv6.conf.all.disable_ipv6 = 1"
+    - "net.ipv6.conf.default.disable_ipv6 = 1"
+    - "net.ipv6.conf.lo.disable_ipv6 = 1"
+
+- name: "[CIS 5.1] Remove NOPASSWD from sudoers"
+  lineinfile:
+    path: /etc/sudoers
+    regexp: "^Defaults.*!authenticate"
+    state: absent
+    validate: "visudo -cf %s"
+  ignore_errors: true
+
+- name: "[CIS 5.1] Set sudo log file"
+  lineinfile:
+    path: /etc/sudoers
+    line: "Defaults logfile=/var/log/sudo.log"
+    state: present
+    validate: "visudo -cf %s"
+  ignore_errors: true
+
+- name: "[CIS 1.7] Set login banners"
+  copy:
+    content: |
+      ########################################################################
+      #                     AUTHORIZED ACCESS ONLY                          #
+      ########################################################################
+      # This system is property of the compliance platform.                 #
+      # Unauthorized access is prohibited and will be prosecuted.           #
+      # All activity on this system is logged and monitored.                #
+      ########################################################################
+    dest: "{{ item }}"
+    mode: "0644"
+    owner: root
+    group: root
+  loop:
+    - /etc/motd
+    - /etc/issue
+    - /etc/issue.net

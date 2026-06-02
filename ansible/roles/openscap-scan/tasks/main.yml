@@ -1,0 +1,149 @@
+---
+- name: Set OS key
+  set_fact:
+    os_key: >-
+      {{
+        'amazon-linux-2023'
+        if ansible_distribution == 'Amazon'
+        else 'ubuntu-2204'
+      }}
+
+- name: Set profile variables for this OS
+  set_fact:
+    scap_file: "{{ openscap_profiles[os_key].scap_file }}"
+    cis_l1_profile: "{{ openscap_profiles[os_key].cis_level1_profile }}"
+    cis_l2_profile: "{{ openscap_profiles[os_key].cis_level2_profile }}"
+
+# -------------------------------------------------------
+# INSTALL OPENSCAP TOOLS
+# -------------------------------------------------------
+- name: Install OpenSCAP and SCAP content on Amazon Linux
+  dnf:
+    name:
+      - openscap-scanner
+      - scap-security-guide
+      - python3-pip
+      - libxml2
+    state: present
+    update_cache: true
+  when: ansible_distribution == "Amazon"
+
+- name: Install OpenSCAP and SCAP content on Ubuntu
+  apt:
+    name:
+      - libopenscap8
+      - ssg-base
+      - ssg-debderived
+      - ssg-debian
+      - ssg-nondebian
+      - python3-pip
+      - python3-boto3
+    state: present
+    update_cache: true
+  when: ansible_distribution == "Ubuntu"
+
+# -------------------------------------------------------
+# RUN CIS LEVEL 1 SCAN
+# -------------------------------------------------------
+- name: Run OpenSCAP CIS Level 1 scan
+  command: >
+    oscap xccdf eval
+    --profile {{ cis_l1_profile }}
+    --results {{ reports_dir }}/cis_level1_results.xml
+    --report {{ reports_dir }}/cis_level1_report.html
+    --oval-results
+    {{ scap_content_base }}/{{ scap_file }}
+  register: oscap_level1_result
+  failed_when: oscap_level1_result.rc not in [0, 2]
+  changed_when: false
+
+- name: Extract CIS Level 1 compliance score
+  shell: >
+    grep -oP 'score.*?\K[\d.]+(?=%)' \
+    {{ reports_dir }}/cis_level1_results.xml | head -1
+  register: level1_score_raw
+  changed_when: false
+
+- name: Set CIS Level 1 score fact
+  set_fact:
+    cis_level1_score: "{{ level1_score_raw.stdout | float | round(2) }}"
+
+# -------------------------------------------------------
+# RUN CIS LEVEL 2 SCAN
+# -------------------------------------------------------
+- name: Run OpenSCAP CIS Level 2 scan
+  command: >
+    oscap xccdf eval
+    --profile {{ cis_l2_profile }}
+    --results {{ reports_dir }}/cis_level2_results.xml
+    --report {{ reports_dir }}/cis_level2_report.html
+    --oval-results
+    {{ scap_content_base }}/{{ scap_file }}
+  register: oscap_level2_result
+  failed_when: oscap_level2_result.rc not in [0, 2]
+  changed_when: false
+
+- name: Extract CIS Level 2 compliance score
+  shell: >
+    grep -oP 'score.*?\K[\d.]+(?=%)' \
+    {{ reports_dir }}/cis_level2_results.xml | head -1
+  register: level2_score_raw
+  changed_when: false
+
+- name: Set CIS Level 2 score fact
+  set_fact:
+    cis_level2_score: "{{ level2_score_raw.stdout | float | round(2) }}"
+
+# -------------------------------------------------------
+# COUNT FINDINGS BY SEVERITY
+# -------------------------------------------------------
+- name: Count critical findings
+  shell: >
+    grep -c 'severity="critical".*result="fail"' \
+    {{ reports_dir }}/cis_level2_results.xml || echo "0"
+  register: critical_count
+  changed_when: false
+
+- name: Count high findings
+  shell: >
+    grep -c 'severity="high".*result="fail"' \
+    {{ reports_dir }}/cis_level2_results.xml || echo "0"
+  register: high_count
+  changed_when: false
+
+- name: Count medium findings
+  shell: >
+    grep -c 'severity="medium".*result="fail"' \
+    {{ reports_dir }}/cis_level2_results.xml || echo "0"
+  register: medium_count
+  changed_when: false
+
+# -------------------------------------------------------
+# WRITE COMPLIANCE SUMMARY JSON
+# -------------------------------------------------------
+- name: Save compliance summary to JSON
+  copy:
+    content: >
+      {
+        "instance_id": "{{ ansible_ec2_instance_id | default(inventory_hostname) }}",
+        "hostname": "{{ inventory_hostname }}",
+        "os": "{{ ansible_distribution }} {{ ansible_distribution_version }}",
+        "cis_level1_score": {{ cis_level1_score }},
+        "cis_level2_score": {{ cis_level2_score }},
+        "critical_findings": {{ critical_count.stdout | int }},
+        "high_findings": {{ high_count.stdout | int }},
+        "medium_findings": {{ medium_count.stdout | int }},
+        "scan_timestamp": "{{ ansible_date_time.iso8601 }}",
+        "scan_phase": "{{ scan_phase | default('initial') }}"
+      }
+    dest: "{{ reports_dir }}/compliance-summary.json"
+    mode: "0644"
+
+- name: Display compliance scores
+  debug:
+    msg:
+      - "Instance: {{ inventory_hostname }}"
+      - "CIS Level 1 Score: {{ cis_level1_score }}%"
+      - "CIS Level 2 Score: {{ cis_level2_score }}%"
+      - "Critical findings: {{ critical_count.stdout }}"
+      - "High findings: {{ high_count.stdout }}"

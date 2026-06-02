@@ -1,0 +1,14 @@
+---
+# Master playbook — full compliance workflow
+# Phase 1: Initial scan → Phase 2: Remediation → Phase 3: Post-remediation scan
+
+- name: Phase 1 — Initial Compliance Scan
+  import_playbook: scan.yml
+
+- name: Phase 2 — Auto-Remediation
+  import_playbook: remediate.yml
+
+- name: Phase 3 — Post-Remediation Scan
+  import_playbook: scan.yml
+  vars:
+    scan_phase: post_remediation

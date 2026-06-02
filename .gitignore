@@ -1,0 +1,41 @@
+# Terraform
+terraform/.terraform/
+terraform/.terraform.lock.hcl
+terraform/*.tfstate
+terraform/*.tfstate.backup
+terraform/crash.log
+terraform/override.tf
+terraform/override.tf.json
+terraform/terraform.tfvars
+terraform/tfplan
+*.tfplan
+
+# SSH keys — NEVER commit
+*.pem
+*.key
+compliance-key.pem
+
+# Ansible
+*.retry
+ansible/inventory/hosts
+
+# Reports — generated locally
+reports/*.html
+reports/*.xml
+reports/*.json
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.venv/
+venv/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Editor
+.vscode/
+.idea/
+*.swp

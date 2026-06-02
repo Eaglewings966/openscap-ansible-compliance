@@ -1,0 +1,12 @@
+---
+ssh_hardening_options:
+  - { key: "PermitRootLogin",         value: "no" }
+  - { key: "PasswordAuthentication",  value: "no" }
+  - { key: "MaxAuthTries",            value: "3" }
+  - { key: "X11Forwarding",           value: "no" }
+  - { key: "AllowTcpForwarding",      value: "no" }
+  - { key: "ClientAliveInterval",     value: "300" }
+  - { key: "ClientAliveCountMax",     value: "0" }
+  - { key: "LogLevel",                value: "VERBOSE" }
+  - { key: "UsePAM",                  value: "yes" }
+  - { key: "IgnoreRhosts",            value: "yes" }

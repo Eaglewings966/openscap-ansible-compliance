@@ -1,0 +1,295 @@
+name: Compliance Scanning Pipeline
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  schedule:
+    # Run every Sunday at 06:00 UTC
+    - cron: "0 6 * * 0"
+  workflow_dispatch:
+    inputs:
+      run_remediation:
+        description: "Run auto-remediation before scanning"
+        required: false
+        default: "false"
+        type: boolean
+
+permissions:
+  contents: read
+  id-token: write
+  pull-requests: write
+
+env:
+  AWS_REGION: us-east-1
+  COMPLIANCE_THRESHOLD: 85
+  REPORTS_DIR: reports
+
+jobs:
+  # -------------------------------------------------------
+  # STAGE 1 — IaC SECURITY SCAN
+  # -------------------------------------------------------
+  iac-scan:
+    name: IaC Security Scan
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Run Checkov on Terraform
+        uses: bridgecrewio/checkov-action@master
+        with:
+          directory: terraform/
+          framework: terraform
+          soft_fail: true
+
+      - name: Run Checkov on Ansible
+        uses: bridgecrewio/checkov-action@master
+        with:
+          directory: ansible/
+          framework: ansible
+          soft_fail: true
+
+  # -------------------------------------------------------
+  # STAGE 2 — COMPLIANCE SCAN
+  # -------------------------------------------------------
+  compliance-scan:
+    name: Run OpenSCAP Compliance Scan
+    runs-on: ubuntu-latest
+    needs: iac-scan
+    if: github.event_name != 'pull_request'
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Configure AWS credentials via OIDC
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install Ansible and dependencies
+        run: |
+          pip install \
+            ansible \
+            ansible-core \
+            boto3 \
+            botocore \
+            defusedxml
+          ansible-galaxy collection install amazon.aws community.general
+
+      - name: Write SSH private key
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.COMPLIANCE_SSH_KEY }}" > ~/.ssh/compliance-key.pem
+          chmod 600 ~/.ssh/compliance-key.pem
+
+      - name: Run remediation if requested
+        if: github.event.inputs.run_remediation == 'true'
+        run: |
+          ansible-playbook ansible/remediate.yml \
+            -i ansible/inventory/aws_ec2.yml \
+            --private-key ~/.ssh/compliance-key.pem \
+            --ssh-extra-args="-o StrictHostKeyChecking=no"
+        env:
+          AWS_DEFAULT_REGION: ${{ env.AWS_REGION }}
+
+      - name: Run OpenSCAP compliance scan
+        run: |
+          mkdir -p ${{ env.REPORTS_DIR }}
+          ansible-playbook ansible/scan.yml \
+            -i ansible/inventory/aws_ec2.yml \
+            --private-key ~/.ssh/compliance-key.pem \
+            --ssh-extra-args="-o StrictHostKeyChecking=no"
+        env:
+          AWS_DEFAULT_REGION: ${{ env.AWS_REGION }}
+
+      - name: Upload scan reports as artifacts
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: compliance-reports
+          path: ${{ env.REPORTS_DIR }}/
+          retention-days: 30
+
+  # -------------------------------------------------------
+  # STAGE 3 — PUSH METRICS TO CLOUDWATCH
+  # -------------------------------------------------------
+  push-metrics:
+    name: Push Compliance Metrics
+    runs-on: ubuntu-latest
+    needs: compliance-scan
+    if: github.event_name != 'pull_request'
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Configure AWS credentials via OIDC
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Download scan reports
+        uses: actions/download-artifact@v4
+        with:
+          name: compliance-reports
+          path: ${{ env.REPORTS_DIR }}
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: pip install boto3 defusedxml
+
+      - name: Push metrics to CloudWatch
+        run: |
+          python3 scripts/push-metrics.py \
+            --reports-dir ${{ env.REPORTS_DIR }} \
+            --region ${{ env.AWS_REGION }}
+
+  # -------------------------------------------------------
+  # STAGE 4 — GENERATE CONSOLIDATED REPORT
+  # -------------------------------------------------------
+  generate-report:
+    name: Generate Compliance Report
+    runs-on: ubuntu-latest
+    needs: compliance-scan
+    if: always()
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Download scan reports
+        uses: actions/download-artifact@v4
+        with:
+          name: compliance-reports
+          path: ${{ env.REPORTS_DIR }}
+        continue-on-error: true
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: pip install defusedxml
+
+      - name: Generate HTML report
+        run: |
+          python3 scripts/generate-report.py \
+            --reports-dir ${{ env.REPORTS_DIR }} \
+            --output ${{ env.REPORTS_DIR }}/consolidated-report.html \
+            --threshold ${{ env.COMPLIANCE_THRESHOLD }}
+
+      - name: Upload consolidated report
+        uses: actions/upload-artifact@v4
+        with:
+          name: consolidated-compliance-report
+          path: ${{ env.REPORTS_DIR }}/consolidated-report.html
+          retention-days: 90
+
+  # -------------------------------------------------------
+  # STAGE 5 — COMPLIANCE GATE
+  # -------------------------------------------------------
+  compliance-gate:
+    name: Compliance Gate — Block if Below ${{ env.COMPLIANCE_THRESHOLD }}%
+    runs-on: ubuntu-latest
+    needs: compliance-scan
+    if: github.event_name != 'pull_request'
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Download scan reports
+        uses: actions/download-artifact@v4
+        with:
+          name: compliance-reports
+          path: ${{ env.REPORTS_DIR }}
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: pip install defusedxml
+
+      - name: Run compliance gate check
+        id: gate
+        run: |
+          python3 scripts/compliance-gate.py \
+            --threshold ${{ env.COMPLIANCE_THRESHOLD }} \
+            --reports-dir ${{ env.REPORTS_DIR }} \
+            --profile cis-level2 \
+            --fail-on-critical
+
+      - name: Post gate result to PR
+        if: github.event_name == 'pull_request' && always()
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const passed = '${{ steps.gate.outputs.gate_passed }}' === 'true';
+            const minScore = '${{ steps.gate.outputs.min_score }}';
+            const totalCritical = '${{ steps.gate.outputs.total_critical }}';
+
+            const body = `## 🛡️ Compliance Gate Report
+
+            | Metric | Value |
+            |--------|-------|
+            | Gate Status | ${passed ? '✅ PASSED' : '❌ FAILED'} |
+            | Minimum CIS L2 Score | ${minScore}% |
+            | Threshold | ${{ env.COMPLIANCE_THRESHOLD }}% |
+            | Critical Findings | ${totalCritical} |
+
+            ${!passed
+              ? '**Deployment is BLOCKED.**\n\nRun `ansible-playbook ansible/remediate.yml` to auto-remediate and re-run the pipeline.'
+              : '**Deployment is approved to proceed.**'
+            }
+
+            *Powered by openscap-ansible-compliance*`;
+
+            github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: body
+            });
+
+  # -------------------------------------------------------
+  # STAGE 6 — DEPLOY (only if gate passes)
+  # -------------------------------------------------------
+  deploy:
+    name: Deploy — Gate Passed
+    runs-on: ubuntu-latest
+    needs: compliance-gate
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Deployment approved
+        run: |
+          echo "================================================"
+          echo "COMPLIANCE GATE PASSED"
+          echo "All instances meet the ${{ env.COMPLIANCE_THRESHOLD }}% threshold."
+          echo "Deployment is approved to proceed."
+          echo "================================================"
+          echo ""
+          echo "In a real pipeline this is where you would:"
+          echo "  - Deploy your application to production"
+          echo "  - Run smoke tests"
+          echo "  - Notify the team"

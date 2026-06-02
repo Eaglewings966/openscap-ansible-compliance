@@ -1,0 +1,52 @@
+---
+- name: OpenSCAP Compliance Scan
+  hosts: compliance_targets
+  become: true
+  gather_facts: true
+  serial: 5
+
+  vars:
+    scan_phase: "{{ scan_phase | default('initial') }}"
+    reports_dir: /opt/compliance-reports
+    local_reports_dir: "{{ playbook_dir }}/../reports"
+
+  pre_tasks:
+    - name: Create reports directory on target
+      file:
+        path: "{{ reports_dir }}"
+        state: directory
+        mode: "0755"
+
+    - name: Create local reports directory
+      file:
+        path: "{{ local_reports_dir }}/{{ inventory_hostname }}"
+        state: directory
+        mode: "0755"
+      delegate_to: localhost
+      become: false
+
+  roles:
+    - openscap-scan
+
+  post_tasks:
+    - name: Fetch scan results to control machine
+      fetch:
+        src: "{{ reports_dir }}/{{ item }}"
+        dest: "{{ local_reports_dir }}/{{ inventory_hostname }}/"
+        flat: true
+      loop:
+        - cis_level1_results.xml
+        - cis_level2_results.xml
+        - cis_level1_report.html
+        - cis_level2_report.html
+        - compliance-summary.json
+      ignore_errors: true
+
+    - name: Display compliance summary
+      debug:
+        msg:
+          - "Instance: {{ inventory_hostname }}"
+          - "OS: {{ ansible_distribution }} {{ ansible_distribution_version }}"
+          - "CIS L1 Score: {{ cis_level1_score | default('N/A') }}%"
+          - "CIS L2 Score: {{ cis_level2_score | default('N/A') }}%"
+          - "Phase: {{ scan_phase }}"

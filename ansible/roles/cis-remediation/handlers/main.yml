@@ -1,0 +1,17 @@
+---
+- name: Restart SSH
+  service:
+    name: "{{ 'sshd' if ansible_distribution == 'Amazon' else 'ssh' }}"
+    state: restarted
+  listen: "Restart SSH"
+
+- name: Restart auditd
+  service:
+    name: auditd
+    state: restarted
+  listen: "Restart auditd"
+
+- name: Apply sysctl changes
+  command: sysctl --system
+  listen: "Apply sysctl changes"
+  changed_when: true

@@ -1,0 +1,30 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Compliance Report - {{ inventory_hostname }}</title>
+  <style>
+    body { font-family: Arial, sans-serif; margin: 2rem; }
+    h1 { color: #232f3e; }
+    .pass { color: green; } .fail { color: red; } .info { color: #888; }
+    table { border-collapse: collapse; width: 100%; }
+    th, td { border: 1px solid #ddd; padding: 8px; text-align: left; }
+    th { background: #232f3e; color: white; }
+    tr:nth-child(even) { background: #f9f9f9; }
+  </style>
+</head>
+<body>
+  <h1>OpenSCAP Compliance Report</h1>
+  <p class="info">Host: <strong>{{ inventory_hostname }}</strong> | Profile: <strong>{{ openscap_profile }}</strong> | Date: <strong>{{ ansible_date_time.iso8601 }}</strong></p>
+  <table>
+    <tr><th>Rule ID</th><th>Title</th><th>Result</th></tr>
+    {% for rule in scan_results.rules | default([]) %}
+    <tr>
+      <td>{{ rule.id }}</td>
+      <td>{{ rule.title }}</td>
+      <td class="{{ 'pass' if rule.result == 'pass' else 'fail' }}">{{ rule.result | upper }}</td>
+    </tr>
+    {% endfor %}
+  </table>
+</body>
+</html>

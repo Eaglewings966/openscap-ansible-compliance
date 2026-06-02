@@ -1,0 +1,42 @@
+---
+- name: CIS Compliance Auto-Remediation
+  hosts: compliance_targets
+  become: true
+  gather_facts: true
+  serial: 1
+
+  vars:
+    remediation_log: /opt/compliance-reports/remediation.log
+
+  pre_tasks:
+    - name: Create remediation log file
+      file:
+        path: "{{ remediation_log }}"
+        state: touch
+        mode: "0644"
+
+    - name: Log remediation start
+      lineinfile:
+        path: "{{ remediation_log }}"
+        line: >
+          {{ ansible_date_time.iso8601 }} —
+          Starting CIS remediation on {{ inventory_hostname }}
+          ({{ ansible_distribution }} {{ ansible_distribution_version }})
+
+  roles:
+    - cis-remediation
+    - cis-hardening
+
+  post_tasks:
+    - name: Log remediation completion
+      lineinfile:
+        path: "{{ remediation_log }}"
+        line: >
+          {{ ansible_date_time.iso8601 }} —
+          Remediation complete on {{ inventory_hostname }}
+
+    - name: Fetch remediation log
+      fetch:
+        src: "{{ remediation_log }}"
+        dest: "{{ playbook_dir }}/../reports/{{ inventory_hostname }}/"
+        flat: true

@@ -1,0 +1,51 @@
+---
+# CIS remediation configuration
+
+ssh_permit_root_login: "no"
+ssh_password_authentication: "no"
+ssh_max_auth_tries: 3
+ssh_client_alive_interval: 300
+ssh_client_alive_count_max: 0
+ssh_login_grace_time: 60
+ssh_x11_forwarding: "no"
+ssh_allow_tcp_forwarding: "no"
+ssh_log_level: "VERBOSE"
+ssh_use_pam: "yes"
+ssh_host_based_authentication: "no"
+ssh_ignore_rhosts: "yes"
+
+pass_max_days: 90
+pass_min_days: 7
+pass_warn_age: 14
+pass_min_len: 14
+
+kernel_sysctl_settings:
+  - { key: "net.ipv4.ip_forward", value: "0" }
+  - { key: "net.ipv4.conf.all.send_redirects", value: "0" }
+  - { key: "net.ipv4.conf.default.send_redirects", value: "0" }
+  - { key: "net.ipv4.conf.all.accept_redirects", value: "0" }
+  - { key: "net.ipv4.conf.default.accept_redirects", value: "0" }
+  - { key: "net.ipv4.conf.all.log_martians", value: "1" }
+  - { key: "net.ipv4.conf.default.log_martians", value: "1" }
+  - { key: "net.ipv4.icmp_echo_ignore_broadcasts", value: "1" }
+  - { key: "net.ipv4.icmp_ignore_bogus_error_responses", value: "1" }
+  - { key: "net.ipv4.conf.all.rp_filter", value: "1" }
+  - { key: "net.ipv4.conf.default.rp_filter", value: "1" }
+  - { key: "net.ipv4.tcp_syncookies", value: "1" }
+  - { key: "net.ipv6.conf.all.accept_redirects", value: "0" }
+  - { key: "net.ipv6.conf.default.accept_redirects", value: "0" }
+  - { key: "kernel.randomize_va_space", value: "2" }
+  - { key: "fs.suid_dumpable", value: "0" }
+
+services_to_disable:
+  - telnet
+  - rsh
+  - rlogin
+  - rexec
+  - tftp
+  - xinetd
+
+filesystem_hardening:
+  - { mount: "/tmp", options: "nodev,nosuid,noexec" }
+  - { mount: "/dev/shm", options: "nodev,nosuid,noexec" }
+  - { mount: "/var/tmp", options: "nodev,nosuid,noexec" }

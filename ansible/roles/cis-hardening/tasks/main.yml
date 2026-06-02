@@ -1,0 +1,115 @@
+---
+- name: Install security packages on Amazon Linux
+  dnf:
+    name:
+      - aide
+      - firewalld
+      - libpwquality
+      - rsyslog
+      - audit
+    state: present
+  when: ansible_distribution == "Amazon"
+
+- name: Install security packages on Ubuntu
+  apt:
+    name:
+      - aide
+      - ufw
+      - libpam-pwquality
+      - rsyslog
+      - auditd
+    state: present
+    update_cache: true
+  when: ansible_distribution == "Ubuntu"
+
+- name: Configure AIDE — file integrity monitoring
+  command: aide --init
+  args:
+    creates: /var/lib/aide/aide.db.gz
+  ignore_errors: true
+
+- name: Configure rsyslog — centralized logging
+  copy:
+    content: |
+      # CIS rsyslog configuration
+      $FileOwner root
+      $FileGroup adm
+      $FileCreateMode 0640
+      $DirCreateMode 0755
+      $Umask 0022
+
+      auth,authpriv.*                          /var/log/auth.log
+      daemon.*                                 /var/log/daemon.log
+      *.info;mail.none;authpriv.none;cron.none /var/log/messages
+    dest: /etc/rsyslog.d/99-cis.conf
+    mode: "0640"
+
+- name: Enable and start security services on Amazon Linux
+  service:
+    name: "{{ item }}"
+    state: started
+    enabled: true
+  loop:
+    - firewalld
+    - rsyslog
+    - auditd
+  when: ansible_distribution == "Amazon"
+  ignore_errors: true
+
+- name: Enable and start security services on Ubuntu
+  service:
+    name: "{{ item }}"
+    state: started
+    enabled: true
+  loop:
+    - ufw
+    - rsyslog
+    - auditd
+  when: ansible_distribution == "Ubuntu"
+  ignore_errors: true
+
+- name: Configure PAM password quality
+  lineinfile:
+    path: /etc/security/pwquality.conf
+    regexp: "^#?{{ item.key }}"
+    line: "{{ item.key }} = {{ item.value }}"
+    state: present
+  loop:
+    - { key: "minlen",         value: "14" }
+    - { key: "dcredit",        value: "-1" }
+    - { key: "ucredit",        value: "-1" }
+    - { key: "ocredit",        value: "-1" }
+    - { key: "lcredit",        value: "-1" }
+    - { key: "minclass",       value: "4" }
+    - { key: "maxrepeat",      value: "3" }
+    - { key: "maxclassrepeat", value: "4" }
+
+- name: Set umask in /etc/profile
+  lineinfile:
+    path: /etc/profile
+    regexp: "^umask"
+    line: "umask 027"
+    state: present
+
+- name: Set umask in shell rc file
+  lineinfile:
+    path: "{{ '/etc/bashrc' if ansible_distribution == 'Amazon' else '/etc/bash.bashrc' }}"
+    regexp: "^umask"
+    line: "umask 027"
+    state: present
+  ignore_errors: true
+
+- name: Ensure SSH hardening
+  lineinfile:
+    path: /etc/ssh/sshd_config
+    regexp: "^#?{{ item.key }}"
+    line: "{{ item.key }} {{ item.value }}"
+    state: present
+  loop: "{{ ssh_hardening_options }}"
+  notify: restart sshd
+
+- name: Enable and start auditd
+  service:
+    name: auditd
+    state: started
+    enabled: true
