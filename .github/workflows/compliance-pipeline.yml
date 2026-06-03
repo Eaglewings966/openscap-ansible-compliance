@@ -224,7 +224,7 @@ jobs:
   # STAGE 5 — COMPLIANCE GATE
   # -------------------------------------------------------
   compliance-gate:
-    name: Compliance Gate — Block if Below ${{ env.COMPLIANCE_THRESHOLD }}%
+    name: Compliance Gate — Block if Below Threshold
     runs-on: ubuntu-latest
     needs: compliance-scan
     if: github.event_name != 'pull_request'
