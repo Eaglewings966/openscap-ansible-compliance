@@ -64,11 +64,11 @@ resource "aws_security_group" "compliance_targets" {
   vpc_id      = data.aws_vpc.default.id
 
   ingress {
-    description = "SSH from runner IP only"
+    description = "SSH from anywhere for CI/CD pipeline"
     from_port   = 22
     to_port     = 22
     protocol    = "tcp"
-    cidr_blocks = ["${chomp(data.http.my_ip.response_body)}/32"]
+    cidr_blocks = ["0.0.0.0/0"]
   }
 
   egress {

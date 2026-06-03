@@ -32,14 +32,45 @@
   apt:
     name:
       - libopenscap8
-      - ssg-base
-      - ssg-debderived
-      - ssg-debian
-      - ssg-nondebian
       - python3-pip
-      - python3-boto3
     state: present
     update_cache: true
+  when: ansible_distribution == "Ubuntu"
+
+- name: Download SCAP Security Guide for Ubuntu 22.04
+  get_url:
+    url: "https://github.com/ComplianceAsCode/content/releases/download/v0.1.73/scap-security-guide-0.1.73.zip"
+    dest: /tmp/ssg.zip
+    mode: "0644"
+    timeout: 120
+  when: ansible_distribution == "Ubuntu"
+
+- name: Install unzip if needed
+  apt:
+    name: unzip
+    state: present
+  when: ansible_distribution == "Ubuntu"
+
+- name: Unzip SCAP Security Guide content
+  unarchive:
+    src: /tmp/ssg.zip
+    dest: /tmp/
+    remote_src: true
+  when: ansible_distribution == "Ubuntu"
+
+- name: Ensure SCAP content directory exists
+  file:
+    path: "{{ scap_content_base }}"
+    state: directory
+    mode: "0755"
+  when: ansible_distribution == "Ubuntu"
+
+- name: Copy Ubuntu SCAP datastream to content base
+  copy:
+    src: /tmp/scap-security-guide-0.1.73/ssg-ubuntu2204-ds.xml
+    dest: "{{ scap_content_base }}/ssg-ubuntu2204-ds.xml"
+    mode: "0644"
+    remote_src: true
   when: ansible_distribution == "Ubuntu"
 
 # -------------------------------------------------------
@@ -59,8 +90,8 @@
 
 - name: Extract CIS Level 1 compliance score
   shell: >
-    grep -oP 'score.*?\K[\d.]+(?=%)' \
-    {{ reports_dir }}/cis_level1_results.xml | head -1
+    grep -o '<score[^>]*>[0-9.]*' \
+    {{ reports_dir }}/cis_level1_results.xml | grep -o '[0-9.]*$' | head -1
   register: level1_score_raw
   changed_when: false
 
@@ -85,8 +116,8 @@
 
 - name: Extract CIS Level 2 compliance score
   shell: >
-    grep -oP 'score.*?\K[\d.]+(?=%)' \
-    {{ reports_dir }}/cis_level2_results.xml | head -1
+    grep -o '<score[^>]*>[0-9.]*' \
+    {{ reports_dir }}/cis_level2_results.xml | grep -o '[0-9.]*$' | head -1
   register: level2_score_raw
   changed_when: false
 
@@ -123,7 +154,7 @@
 # -------------------------------------------------------
 - name: Save compliance summary to JSON
   copy:
-    content: >
+    content: |
       {
         "instance_id": "{{ ansible_ec2_instance_id | default(inventory_hostname) }}",
         "hostname": "{{ inventory_hostname }}",
@@ -134,7 +165,7 @@
         "high_findings": {{ high_count.stdout | int }},
         "medium_findings": {{ medium_count.stdout | int }},
         "scan_timestamp": "{{ ansible_date_time.iso8601 }}",
-        "scan_phase": "{{ scan_phase | default('initial') }}"
+        "scan_phase": "{{ scan_phase }}"
       }
     dest: "{{ reports_dir }}/compliance-summary.json"
     mode: "0644"

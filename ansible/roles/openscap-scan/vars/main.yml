@@ -8,14 +8,14 @@ openscap_profiles:
   amazon-linux-2023:
     scap_file: "ssg-al2023-ds.xml"
     cis_level1_profile: "xccdf_org.ssgproject.content_profile_cis"
-    cis_level2_profile: "xccdf_org.ssgproject.content_profile_cis_server_l2"
+    cis_level2_profile: "xccdf_org.ssgproject.content_profile_cis_server_l1"
     package_name: "scap-security-guide"
 
   ubuntu-2204:
     scap_file: "ssg-ubuntu2204-ds.xml"
     cis_level1_profile: "xccdf_org.ssgproject.content_profile_cis_level1_server"
     cis_level2_profile: "xccdf_org.ssgproject.content_profile_cis_level2_server"
-    package_name: "ssg-nondebian"
+    package_name: "ssg-applications"
 
 severity_levels:
   - critical

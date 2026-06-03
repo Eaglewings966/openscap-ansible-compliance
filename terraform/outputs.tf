@@ -20,7 +20,7 @@ output "ubuntu_public_ip" {
 
 output "private_key_path" {
   description = "Path to the SSH private key for Ansible"
-  value       = "${path.module}/../compliance-key.pem"
+  value       = abspath("${path.module}/../compliance-key.pem")
 }
 
 output "sns_topic_arn" {
@@ -38,6 +38,6 @@ output "ansible_inventory_vars" {
   value = {
     amazon_linux_ip = aws_instance.amazon_linux.public_ip
     ubuntu_ip       = aws_instance.ubuntu.public_ip
-    key_path        = "${path.module}/../compliance-key.pem"
+    key_path        = abspath("${path.module}/../compliance-key.pem")
   }
 }

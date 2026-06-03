@@ -1,0 +1,1 @@
+{"instance_id": "amazon-linux", "hostname": "amazon-linux", "os": "Amazon 2023", "cis_level1_score": 69.26, "cis_level2_score": 80.06, "critical_findings": 0, "high_findings": 0, "medium_findings": 0, "scan_timestamp": "2026-06-03T14:50:30Z", "scan_phase": "post_remediation"}

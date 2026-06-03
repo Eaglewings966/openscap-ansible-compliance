@@ -6,7 +6,7 @@
   serial: 5
 
   vars:
-    scan_phase: "{{ scan_phase | default('initial') }}"
+    scan_phase: "initial"
     reports_dir: /opt/compliance-reports
     local_reports_dir: "{{ playbook_dir }}/../reports"
 

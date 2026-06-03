@@ -19,6 +19,7 @@ keyed_groups:
 
 compose:
   ansible_host: public_ip_address
+  ansible_user: "'ubuntu' if 'ubuntu' in tags.get('OS', '') else 'ec2-user'"
 
 hostvar_expressions:
   instance_id: instance_id

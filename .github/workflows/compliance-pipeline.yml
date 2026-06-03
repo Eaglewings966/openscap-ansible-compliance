@@ -92,11 +92,30 @@ jobs:
           echo "${{ secrets.COMPLIANCE_SSH_KEY }}" > ~/.ssh/compliance-key.pem
           chmod 600 ~/.ssh/compliance-key.pem
 
+      - name: Write static inventory
+        run: |
+          mkdir -p ansible/inventory
+          cat > ansible/inventory/hosts.ini << 'EOF'
+          [compliance_targets]
+          amazon-linux ansible_host=54.204.67.178 ansible_user=ec2-user
+          ubuntu        ansible_host=54.164.97.11  ansible_user=ubuntu
+
+          [amazon_linux]
+          amazon-linux ansible_host=54.204.67.178 ansible_user=ec2-user
+
+          [ubuntu]
+          ubuntu ansible_host=54.164.97.11 ansible_user=ubuntu
+
+          [compliance_targets:vars]
+          ansible_ssh_private_key_file=~/.ssh/compliance-key.pem
+          ansible_ssh_common_args=-o StrictHostKeyChecking=no
+          EOF
+
       - name: Run remediation if requested
         if: github.event.inputs.run_remediation == 'true'
         run: |
           ansible-playbook ansible/remediate.yml \
-            -i ansible/inventory/aws_ec2.yml \
+            -i ansible/inventory/hosts.ini \
             --private-key ~/.ssh/compliance-key.pem \
             --ssh-extra-args="-o StrictHostKeyChecking=no"
         env:
@@ -106,7 +125,7 @@ jobs:
         run: |
           mkdir -p ${{ env.REPORTS_DIR }}
           ansible-playbook ansible/scan.yml \
-            -i ansible/inventory/aws_ec2.yml \
+            -i ansible/inventory/hosts.ini \
             --private-key ~/.ssh/compliance-key.pem \
             --ssh-extra-args="-o StrictHostKeyChecking=no"
         env:
